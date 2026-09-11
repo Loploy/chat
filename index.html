@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Simple Chat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nanum+Pen+Script&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+
+<script src="https://www.gstatic.com/firebasejs/11.10.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/11.10.0/firebase-database-compat.js"></script>
+<style>
+  :root{
+    --paper: #f7f5ef;
+    --ink: #2c3968;
+    --ink-soft: #5b699a;
+    --accent: #b23b3b;
+    --text: #23252b;
+    --line: #c9c3b0;
+    --mute: #9a958a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: #e9e6de;
+    font-family: 'Noto Sans KR', sans-serif;
+    color: var(--text);
+  }
+  .wrap {
+    max-width: 640px;
+    height: 100%;
+    margin: 0 auto;
+    padding: 16px 14px 20px;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+  h1 {
+    font-family: 'Nanum Pen Script', cursive;
+    font-size: 40px;
+    margin: 0;
+    color: var(--ink);
+    line-height: 1;
+  }
+
+  .status { font-size: 12px; color: var(--mute); }
+  .status.bad { color: var(--accent); }
+
+  .panel {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+  }
+  .top-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .top-row label { font-size: 13px; font-weight: 700; color: var(--ink); }
+  input[type=text] {
+    flex: 1;
+    min-width: 0;
+    font-family: inherit;
+    font-size: 13px;
+    padding: 8px 10px;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: #fffdf9;
+    color: var(--text);
+  }
+  input[type=text]:disabled { background: #f0ede5; color: var(--mute); }
+  button {
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 8px 14px;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: #fffdf9;
+    color: var(--ink);
+    cursor: pointer;
+  }
+
+  button:disabled {
+    background: #ebe7dc;
+    border-color: #d5cfbe;
+    color: #a49e91;
+    cursor: default;
+  }
+  button.primary { background: var(--ink); border-color: var(--ink); color: #fffdf9; }
+  button.primary:disabled { background: #b9bdd0; border-color: #b9bdd0; color: #f2f1ec; }
+
+  .users {
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin-bottom: 8px;
+    word-break: break-all;
+  }
+
+  .log {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: #fffdf9;
+    font-size: 13px;
+  }
+  .log-empty { margin: auto; color: var(--mute); font-size: 12px; }
+
+  .msg {
+    display: flex;
+    flex-direction: column;
+    max-width: 78%;
+  }
+  .msg.mine { align-self: flex-end; align-items: flex-end; }
+  .msg.theirs { align-self: flex-start; align-items: flex-start; }
+  .msg-name {
+    font-size: 11px;
+    color: var(--mute);
+    margin: 0 0 2px 4px;
+  }
+
+  .bubble-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 5px;
+    max-width: 100%;
+  }
+  .msg.mine .bubble-row { flex-direction: row-reverse; }
+  .bubble {
+    padding: 6px 10px;
+    border-radius: 12px;
+    line-height: 1.4;
+    word-break: break-word;
+    white-space: pre-wrap;
+  }
+  .bubble.mine { background: var(--ink); color: #fffdf9; }
+  .bubble.theirs { background: #ece9df; color: var(--text); }
+  .time { font-size: 10px; color: var(--mute); flex: none; }
+
+  .input-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  @media (max-width: 480px) {
+    h1 { font-size: 32px; }
+    .wrap { padding: 12px 10px 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Simple Chat</h1>
+    <span class="status" id="status">연결 중…</span>
+  </header>
+
+  <div class="panel">
+    <div class="top-row">
+      <label for="nickInput">이름</label>
+      <input type="text" id="nickInput" maxlength="12" placeholder="닉네임" disabled />
+    </div>
+    <div class="users" id="users">접속자 —</div>
+
+    <div class="log" id="log">
+      <div class="log-empty" id="logEmpty">연결을 기다리는 중</div>
+    </div>
+
+    <div class="input-row">
+      <input type="text" id="msgInput" maxlength="200" placeholder="메시지 입력" disabled />
+      <button id="sendBtn" class="primary" disabled>보내기</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyAZvNJjUdua_EVsNtrsNcH31KB25vKC9rw",
+    authDomain: "wave-omok.firebaseapp.com",
+    databaseURL: "https://wave-omok-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "wave-omok",
+    storageBucket: "wave-omok.firebasestorage.app",
+    messagingSenderId: "24140803014",
+    appId: "1:24140803014:web:6d09bd7b396ce7df01e0c7"
+  };
+  const ROOT_PATH = 'simple-chat/main';
+  const MSG_PATH = ROOT_PATH + '/messages';
+  const USERS_PATH = ROOT_PATH + '/users';
+  const MSG_LIMIT = 50;
+  const NAME_MAX = 12;
+  const TEXT_MAX = 200;
+  const ME_KEY = 'simple-chat:me';
+  const NICK_KEY = 'simple-chat:nick';
+
+  const statusEl = document.getElementById('status');
+  const nickInput = document.getElementById('nickInput');
+  const usersEl = document.getElementById('users');
+  const log = document.getElementById('log');
+  const logEmpty = document.getElementById('logEmpty');
+  const msgInput = document.getElementById('msgInput');
+  const sendBtn = document.getElementById('sendBtn');
+
+  let db = null;
+  let msgRef = null, msgQuery = null;
+  let usersRef = null;
+  let nickMap = {};
+  let lastFrom = null;
+
+  function setStatus(text, bad) {
+    statusEl.textContent = text;
+    statusEl.classList.toggle('bad', !!bad);
+  }
+
+  let myId = null;
+  function getMyId() {
+    if (myId) return myId;
+    const gen = () => Math.random().toString(36).slice(2, 10);
+    try {
+      myId = localStorage.getItem(ME_KEY);
+      if (!myId) {
+        myId = gen();
+        localStorage.setItem(ME_KEY, myId);
+      }
+    } catch (e) {
+      myId = gen();
+    }
+    return myId;
+  }
+
+  function getNick() {
+    const v = nickInput.value.trim();
+    return v || ('손님' + getMyId().slice(0, 4));
+  }
+
+  function loadNick() {
+    let saved = null;
+    try { saved = localStorage.getItem(NICK_KEY); } catch (e) {  }
+    nickInput.value = saved || ('손님' + getMyId().slice(0, 4));
+  }
+
+  function displayName(from, fallback) {
+    return nickMap[from] || fallback || '손님';
+  }
+
+  function refreshNames() {
+    for (const box of log.querySelectorAll('.msg')) {
+      const nameEl = box.querySelector('.msg-name');
+      if (nameEl) nameEl.textContent = displayName(box.dataset.from, box.dataset.fallbackName);
+    }
+  }
+
+  function publishNick() {
+    if (!usersRef) return;
+    usersRef.child(getMyId()).set({ name: getNick() }).catch(() => {  });
+  }
+
+  function renderUsers() {
+    const ids = Object.keys(nickMap);
+    if (!ids.length) {
+      usersEl.textContent = '접속자 —';
+      return;
+    }
+    const names = ids.map(id => nickMap[id] + (id === getMyId() ? ' (나)' : ''));
+    usersEl.textContent = '접속자 ' + ids.length + '명 · ' + names.join(', ');
+  }
+
+  function timeText(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+
+  function appendMessage(key, from, fallbackName, text, ts) {
+    logEmpty.hidden = true;
+    const mine = from === getMyId();
+
+    const box = document.createElement('div');
+    box.className = 'msg ' + (mine ? 'mine' : 'theirs');
+
+    box.dataset.from = from;
+    if (fallbackName) box.dataset.fallbackName = fallbackName;
+    if (key) box.dataset.key = key;
+
+    if (!mine && from !== lastFrom) {
+      const nameEl = document.createElement('div');
+      nameEl.className = 'msg-name';
+      nameEl.textContent = displayName(from, fallbackName);
+      box.appendChild(nameEl);
+    }
+
+    const row = document.createElement('div');
+    row.className = 'bubble-row';
+
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble ' + (mine ? 'mine' : 'theirs');
+    bubble.textContent = text;
+    row.appendChild(bubble);
+
+    const timeEl = document.createElement('span');
+    timeEl.className = 'time';
+    timeEl.textContent = timeText(ts);
+    row.appendChild(timeEl);
+
+    box.appendChild(row);
+    log.appendChild(box);
+    log.scrollTop = log.scrollHeight;
+    lastFrom = from;
+  }
+
+  function setEnabled(on) {
+    msgInput.disabled = !on;
+    sendBtn.disabled = !on;
+    nickInput.disabled = !on;
+    logEmpty.textContent = on ? '아직 대화 없음' : '연결을 기다리는 중';
+  }
+
+  function send() {
+    if (!msgRef) return;
+    const text = msgInput.value.trim();
+    if (!text) return;
+    msgInput.value = '';
+    msgRef.push({
+      from: getMyId(),
+      name: getNick(),
+      text: text.slice(0, TEXT_MAX),
+      ts: Date.now()
+    }).catch(() => setStatus('전송 실패', true));
+  }
+
+  sendBtn.addEventListener('click', send);
+  msgInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); send(); }
+  });
+
+  nickInput.addEventListener('change', () => {
+    nickInput.value = nickInput.value.trim().slice(0, NAME_MAX);
+    try { localStorage.setItem(NICK_KEY, getNick()); } catch (e) {  }
+    publishNick();
+  });
+
+  window.addEventListener('storage', e => {
+    if (e.key !== NICK_KEY || !e.newValue) return;
+    nickInput.value = e.newValue.slice(0, NAME_MAX);
+  });
+
+  function connect() {
+
+    if (typeof firebase === 'undefined') {
+      setStatus('연결 불가 (오프라인?)', true);
+      return;
+    }
+    try {
+      if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+      db = firebase.database();
+    } catch (e) {
+      setStatus('연결 실패', true);
+      return;
+    }
+
+    usersRef = db.ref(USERS_PATH);
+    usersRef.on('value', snap => {
+      const raw = snap.val() || {};
+      const next = {};
+      for (const id of Object.keys(raw)) {
+        const n = raw[id] && raw[id].name;
+        if (typeof n === 'string' && n.trim()) next[id] = n.slice(0, NAME_MAX);
+      }
+      nickMap = next;
+      refreshNames();
+      renderUsers();
+
+      const myName = nickMap[getMyId()];
+      if (myName && myName !== nickInput.value) {
+        nickInput.value = myName;
+        try { localStorage.setItem(NICK_KEY, myName); } catch (e) {  }
+      }
+    }, () => {  });
+
+    msgRef = db.ref(MSG_PATH);
+    msgQuery = msgRef.limitToLast(MSG_LIMIT);
+    msgQuery.on('child_added', snap => {
+      const m = snap.val();
+      if (!m || typeof m.text !== 'string') return;
+
+      const fallback = (typeof m.name === 'string' && m.name.trim()) ? m.name.slice(0, NAME_MAX) : '';
+      appendMessage(snap.key, m.from, fallback, m.text.slice(0, TEXT_MAX), m.ts);
+    }, () => setStatus('수신 오류', true));
+
+    msgQuery.on('child_removed', snap => {
+      const box = log.querySelector('.msg[data-key="' + snap.key + '"]');
+      if (box) box.remove();
+      if (!log.querySelector('.msg')) {
+        logEmpty.hidden = false;
+        lastFrom = null;
+      }
+    });
+
+    db.ref('.info/connected').on('value', snap => {
+      if (!snap.val()) {
+        setStatus('끊김 — 다시 연결 중…', true);
+        return;
+      }
+      setStatus('연결됨', false);
+      setEnabled(true);
+      if (!usersRef) return;
+
+      usersRef.child(getMyId()).onDisconnect().remove();
+      publishNick();
+    });
+  }
+
+  loadNick();
+  connect();
+})();
+</script>
+</body>
+</html>
